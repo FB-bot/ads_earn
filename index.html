@@ -542,6 +542,10 @@
   </footer>
 
   <script>
+    // ================== IMPORTANT: set your server URL here ==================
+    const API_BASE = 'https://ads-backed-bot.onrender.com'; // <-- CHANGE this to your hosted referral server (e.g. https://my-referral.example.com)
+    // ======================================================================
+
     document.addEventListener('DOMContentLoaded', () => {
       // --- Safety / Config ---
       const ADMIN_ID = 1849126202; // EDIT: replace with real admin ID
@@ -800,16 +804,69 @@
 
       // --- Referral start handling (basic client-side only) ---
       function handleReferralStart() {
-        const tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
-        if (!tg) return;
-        if (tg.initDataUnsafe && tg.initDataUnsafe.start_param) {
-          // Start param should be processed on backend to credit referrer.
-          const refParam = String(tg.initDataUnsafe.start_param || '');
-          if (refParam.startsWith('ref')) {
-            const referrerId = refParam.replace('ref', '');
-            console.log('Referral start param detected, referrerId=', referrerId);
-            showStatus('Welcome! You joined via a referral link.', 'success', 4000);
+        try {
+          const tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
+          if (!tg) return;
+          if (tg.initDataUnsafe && tg.initDataUnsafe.start_param) {
+            const refParam = String(tg.initDataUnsafe.start_param || '');
+            if (refParam.startsWith('ref')) {
+              const referrerId = refParam.replace('ref', '');
+              console.log('Referral start param detected, referrerId=', referrerId);
+              showStatus('Welcome! You joined via a referral link.', 'success', 4000);
+
+              // --- NEW: send referral registration to backend ---
+              // Only attempt if API_BASE is configured (user must change API_BASE at top)
+              if (API_BASE && API_BASE.indexOf('YOUR_SERVER_URL') === -1) {
+                try {
+                  const user = tg.initDataUnsafe.user || {};
+                  const payload = {
+                    newUserId: String(user.id || ('guest_' + Math.floor(Math.random()*1000000))),
+                    referrerId: String(referrerId),
+                    first_name: user.first_name || null,
+                    last_name: user.last_name || null,
+                    username: user.username || null,
+                    initDataString: tg.initData || null
+                  };
+
+                  fetch(API_BASE + '/api/referral/register', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload),
+                    keepalive: true // allow send when navigating away (where supported)
+                  }).then(r => r.json()).then(json => {
+                    console.log('Referral server response:', json);
+                    if (json && json.success) {
+                      if (json.credited) {
+                        // If the current user is the referrer, update local stats
+                        const currentUser = (tg.initDataUnsafe && tg.initDataUnsafe.user) ? tg.initDataUnsafe.user : null;
+                        if (currentUser && String(currentUser.id) === String(referrerId)) {
+                          state.balanceInCents = json.referrerBalanceCents || state.balanceInCents;
+                          state.referralCount = json.referrerReferralCount || state.referralCount;
+                          saveState();
+                          updateUI();
+                        }
+                        showStatus('Referral verified — bonus applied.', 'success', 4000);
+                      } else {
+                        // idempotent or already processed
+                        console.log('Referral was already processed or not credited:', json);
+                      }
+                    } else {
+                      console.warn('Referral register failed:', json);
+                    }
+                  }).catch(err => {
+                    console.warn('Referral request error', err);
+                  });
+                } catch (e) {
+                  console.warn('Referral fetch failed', e);
+                }
+              } else {
+                // API_BASE not configured (developer did not set server URL)
+                console.warn('API_BASE not configured; referral not sent to server.');
+              }
+            }
           }
+        } catch (e) {
+          console.warn('handleReferralStart error', e);
         }
       }
 
