@@ -11,7 +11,7 @@
   <!-- 2. Telegram Web App Script -->
   <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
 
-  <!-- ================= New Modern Glassy UI CSS (Option A) with profile styles ================= -->
+  <!-- ================= New Modern Glassy UI CSS (with profile block) ================= -->
   <style>
   /* ========== Modern Glassy UI (no logic change) ========== */
 
@@ -345,8 +345,6 @@
     border-left: 4px solid transparent;
   }
 
-  /* এই তিনটা ক্লাস JS-এ ব্যবহার হচ্ছে, তাই রং সুন্দরভাবে সাজালাম */
-
   .success {
     display: block;
     background: rgba(34, 197, 94, 0.1);
@@ -463,7 +461,7 @@
     <!-- Home / Task View -->
     <div id="home-view" class="view">
       <div class="header">
-        <!-- NEW: profile row (added without changing other logic) -->
+        <!-- PROFILE ROW: always shows (Telegram if available, otherwise Guest + random avatar) -->
         <div class="profile-row" id="profileRow" style="display:none;">
           <div class="profile-pic" id="profilePic"><img src="" alt="profile"></div>
           <div class="profile-info">
@@ -471,7 +469,6 @@
             <div class="profile-sub" id="profileSub">@username</div>
           </div>
         </div>
-        <!-- end new -->
 
         <h1>Smart Earning</h1><p>Watch Ads and Earn USDT</p>
       </div>
@@ -816,37 +813,53 @@
         }
       }
 
-      // --- NEW: populate profile (non-invasive) ---
+      // --- NEW: populate profile (always shows: Telegram if available, else Guest with random avatar) ---
       function populateProfileIfAvailable() {
         try {
           const tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
-          if (!tg || !tg.initDataUnsafe || !tg.initDataUnsafe.user) {
-            // no Telegram user data — leave profileRow hidden
-            return;
+          let user = null;
+
+          if (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) {
+            user = tg.initDataUnsafe.user;
           }
-          const user = tg.initDataUnsafe.user;
+
+          // If no user from Telegram, create a fallback 'guest' object using random seed
+          if (!user) {
+            const randomSeed = 'guest' + Math.floor(Math.random() * 1000000);
+            user = {
+              id: 'guest-' + randomSeed,
+              first_name: 'Guest',
+              last_name: '',
+              username: null
+            };
+          }
+
           const displayName = (user.first_name || '') + (user.last_name ? (' ' + user.last_name) : '');
-          const username = user.username ? ('@' + user.username) : '—';
+          const username = user.username ? ('@' + user.username) : (typeof user.id === 'string' ? user.id : ('guest_' + String(user.id)));
 
-          // Profile photo: Telegram WebApp's initDataUnsafe usually doesn't include photo URL.
-          // If provider included it as user.photo_url we use it; otherwise fallback to a generated avatar.
+          // Photo: use Telegram photo if available, otherwise a DiceBear identicon
           let photoUrl = (user.photo_url && typeof user.photo_url === 'string') ? user.photo_url : null;
-
-          // If no photoUrl, use DiceBear identicon (random by user id or username)
           if (!photoUrl) {
             const seed = user.username || user.id || ('user' + Math.floor(Math.random() * 100000));
-            // DiceBear 6.x API (svg). Use PNG-like URL by forcing format=png for broader compatibility.
             photoUrl = `https://api.dicebear.com/6.x/identicon/png?seed=${encodeURIComponent(seed)}&scale=100`;
           }
 
-          // Set DOM
-          profilePic.src = photoUrl;
-          profilePic.alt = displayName || 'User';
-          profileNameEl.textContent = displayName || (user.username ? ('@' + user.username) : 'Telegram User');
-          profileSubEl.textContent = username;
-
-          // show the profile row
-          profileRow.style.display = 'flex';
+          // Set DOM safely (elements exist in your HTML)
+          try {
+            const picEl = document.querySelector('#profilePic img');
+            if (picEl) {
+              picEl.src = photoUrl;
+              picEl.alt = displayName || 'User';
+            }
+            const nameEl = document.getElementById('profileName');
+            const subEl = document.getElementById('profileSub');
+            if (nameEl) nameEl.textContent = displayName || (user.username ? ('@' + user.username) : 'Guest User');
+            if (subEl) subEl.textContent = username;
+            const row = document.getElementById('profileRow');
+            if (row) row.style.display = 'flex';
+          } catch (domErr) {
+            console.warn('Profile DOM update failed:', domErr);
+          }
         } catch (e) {
           console.warn('populateProfileIfAvailable error', e);
         }
@@ -867,7 +880,7 @@
         generateReferralLink();
         handleReferralStart();
 
-        // NEW: populate profile on home (non-invasive)
+        // NEW: populate profile on home (always shows)
         populateProfileIfAvailable();
 
         // show admin panel if user is admin
